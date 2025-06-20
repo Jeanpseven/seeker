@@ -18,7 +18,7 @@ def print_ascii():
     ]
     print(C)
     for linha in ascii_art:
-        print(f'echo -e "{linha}"')
+        print(f'{linha}')
     print(W)
 
 def criar_index_html(redirect_url, title, sitename, desc, image_url):
